@@ -1,0 +1,18 @@
+{
+  "name": "Vesta — Hours Left",
+  "short_name": "Vesta",
+  "description": "A split-flap board counting down the hours left in the year.",
+  "start_url": ".",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0a0a0a",
+  "theme_color": "#0a0a0a",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
