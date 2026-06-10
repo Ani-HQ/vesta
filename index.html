@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vesta — Hours Left</title>
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --cell-bg: #141414;
+    --cell-bg-2: #0e0e0e;
+    --char: #f5e7c4;
+    --char-shadow: rgba(0, 0, 0, 0.7);
+    --slot-line: rgba(0, 0, 0, 0.85);
+    --accent-white: #e8e6df;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--char);
+    font-family: "Helvetica Neue", Inter, Arial, sans-serif;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: geometricPrecision;
+  }
+
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: none;
+  }
+
+  .board {
+    display: grid;
+    grid-template-columns: repeat(22, 1fr);
+    grid-template-rows: repeat(6, 1fr);
+    gap: clamp(2px, 0.4vmin, 6px);
+    width: min(96vw, 180vh);
+    aspect-ratio: 22 / 6;
+    padding: clamp(8px, 1.4vmin, 22px);
+    background: #000;
+    border-radius: clamp(6px, 1vmin, 14px);
+    box-shadow:
+      0 0 0 1px #1a1a1a,
+      0 30px 80px rgba(0, 0, 0, 0.7),
+      inset 0 0 60px rgba(0, 0, 0, 0.6);
+    perspective: 600px;
+  }
+
+  .cell {
+    position: relative;
+    background: linear-gradient(180deg, #1c1c1c 0%, var(--cell-bg) 50%, var(--cell-bg-2) 100%);
+    border-radius: clamp(2px, 0.45vmin, 6px);
+    color: var(--char);
+    font-family: "Helvetica Neue", "Arial Black", Arial, sans-serif;
+    font-weight: 700;
+    font-size: clamp(14px, 4.8vmin, 92px);
+    line-height: 1;
+    text-transform: uppercase;
+    user-select: none;
+    overflow: hidden;
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.03),
+      inset 0 -2px 4px rgba(0, 0, 0, 0.55);
+    transform-style: preserve-3d;
+    backface-visibility: hidden;
+  }
+
+  /* The character itself, centered in the cell */
+  .cell .char {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    text-shadow: 0 1px 2px var(--char-shadow);
+    will-change: transform;
+  }
+
+  /* Horizontal slot line that gives the split-flap aesthetic */
+  .cell::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 1px;
+    background: var(--slot-line);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.025);
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  /* Color-chip cells */
+  .cell.chip { background: var(--accent-white); }
+  .cell.chip::after { display: none; }
+  .cell.chip .char { display: none; }
+
+  /* Flip animation on character swap */
+  .cell.flipping .char {
+    animation: flip 260ms ease-in-out;
+  }
+  @keyframes flip {
+    0%   { transform: rotateX(0deg); }
+    45%  { transform: rotateX(-88deg); }
+    50%  { transform: rotateX(-90deg); opacity: 0.85; }
+    55%  { transform: rotateX(-92deg); }
+    100% { transform: rotateX(-180deg); }
+  }
+  /* After the animation completes we reset (JS removes the class); but during
+     the flip we replace the char mid-animation so the second half (90deg→180deg)
+     reveals the new glyph upright on the back side. To make rotation continuous
+     we apply a "settle" reset class that snaps back without animating. */
+  .cell.settled .char {
+    transform: rotateX(0deg);
+    transition: none;
+  }
+
+  .hint {
+    position: fixed;
+    bottom: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 11px;
+    color: rgba(245, 231, 196, 0.18);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+  <div class="board" id="board" aria-label="Vestaboard"></div>
+  <div class="hint">press F for fullscreen</div>
+
+<script>
+(() => {
+  const COLS = 22;
+  const ROWS = 6;
+  const CELLS = COLS * ROWS;
+  const CHAR_SET = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!?.,'-:";
+
+  const MESSAGES = [
+    ["FOCUS ON THE FEW", "THINGS THAT MATTER"],
+    ["DO NOT SHIP RANDOM", "STUFF NOBODY WANTS"],
+    ["AIM SMALL OR AIM BIG", "NOTHING IN BETWEEN"],
+    ["DELETE OPTIONS", "PICK ONE. FINISH IT."],
+    ["MOST WORK IS WASTE", "PICK THE 1 PERCENT"],
+    ["ONE BIG BET BEATS", "TEN SMALL BETS"],
+    ["IF IT WONT MATTER", "IN 5 YEARS, SKIP IT"],
+    ["BUILDING FEELS LIKE", "PROGRESS. IT ISNT."],
+    ["WHAT WOULD YOU DO", "IF YOU HAD ONE SHOT"],
+    ["DEPTH OVER BREADTH", "FEWER. BIGGER."],
+    ["YOU CANNOT BUY TIME", "BACK. SPEND IT WELL."],
+    ["KILL THE SIDE QUEST", "MAIN STORY ONLY"],
+    ["THE WORK THAT", "COMPOUNDS IS RARE"],
+    ["STOP CONSUMING", "START EXECUTING"],
+    ["AI MAKES BUILDING", "CHEAP. CHOOSING HARD."],
+    ["MAKE LESS. MAKE IT", "MATTER MORE."],
+  ];
+
+  const board = document.getElementById("board");
+  const cells = [];
+  const charEls = [];
+  const current = new Array(CELLS).fill(" ");
+  const isChip = new Array(CELLS).fill(false);
+
+  for (let i = 0; i < CELLS; i++) {
+    const el = document.createElement("div");
+    el.className = "cell";
+    const c = document.createElement("div");
+    c.className = "char";
+    c.textContent = " ";
+    el.appendChild(c);
+    board.appendChild(el);
+    cells.push(el);
+    charEls.push(c);
+  }
+
+  function idx(row, col) { return row * COLS + col; }
+
+  function sanitize(line) {
+    return line.toUpperCase().split("").map(c => CHAR_SET.includes(c) ? c : " ").join("");
+  }
+
+  function setCellChar(i, ch) {
+    const el = cells[i];
+    if (isChip[i]) {
+      el.classList.remove("chip");
+      isChip[i] = false;
+      current[i] = " ";
+    }
+    if (current[i] === ch) return;
+    current[i] = ch;
+
+    const charEl = charEls[i];
+    el.classList.remove("flipping", "settled");
+    void el.offsetWidth;
+    el.classList.add("flipping");
+
+    // Swap glyph at the apex of the flip (rotateX ~ -90deg, edge-on)
+    setTimeout(() => { charEl.textContent = ch; }, 130);
+    // After the flip animation ends, snap back to upright without animating
+    setTimeout(() => {
+      el.classList.remove("flipping");
+      el.classList.add("settled");
+      // remove settled on next frame so future flips work
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        el.classList.remove("settled");
+      }));
+    }, 270);
+  }
+
+  function setCellChip(i) {
+    const el = cells[i];
+    if (isChip[i]) return;
+    el.classList.add("chip");
+    isChip[i] = true;
+    current[i] = "";
+  }
+
+  function writeLine(row, line, chipBorder) {
+    const padded = (line || "").padEnd(COLS, " ").slice(0, COLS);
+    for (let c = 0; c < COLS; c++) {
+      const i = idx(row, c);
+      const ch = padded[c];
+      if (chipBorder && (c === 0 || c === COLS - 1) && ch === " ") {
+        setCellChip(i);
+      } else {
+        setCellChar(i, ch);
+      }
+    }
+  }
+
+  function centerLine(text) {
+    text = sanitize(text);
+    if (text.length >= COLS) return text.slice(0, COLS);
+    const pad = Math.floor((COLS - text.length) / 2);
+    return " ".repeat(pad) + text + " ".repeat(COLS - text.length - pad);
+  }
+
+  function hoursLeftInYear() {
+    const now = new Date();
+    const endOfYear = new Date(now.getFullYear() + 1, 0, 1, 0, 0, 0, 0);
+    const ms = endOfYear - now;
+    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+    return {
+      hours: Math.floor(totalSeconds / 3600),
+      minutes: Math.floor((totalSeconds % 3600) / 60),
+      seconds: totalSeconds % 60,
+      year: now.getFullYear(),
+    };
+  }
+
+  function renderFrame(messageLines) {
+    const { hours, minutes, seconds, year } = hoursLeftInYear();
+    const headline = `HOURS LEFT IN ${year}`;
+    const big = `${hours}H ${String(minutes).padStart(2, "0")}M ${String(seconds).padStart(2, "0")}S`;
+
+    writeLine(0, "", "W");
+    writeLine(1, centerLine(headline));
+    writeLine(2, centerLine(big));
+    writeLine(3, centerLine(messageLines[0] || ""));
+    writeLine(4, centerLine(messageLines[1] || ""));
+    writeLine(5, "", "W");
+  }
+
+  let messageIdx = Math.floor(Math.random() * MESSAGES.length);
+  const msg = () => MESSAGES[messageIdx];
+
+  renderFrame(msg());
+  setInterval(() => renderFrame(msg()), 1000);
+  setInterval(() => {
+    messageIdx = (messageIdx + 1) % MESSAGES.length;
+    renderFrame(msg());
+  }, 12000);
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "f" || e.key === "F") {
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+      else document.exitFullscreen();
+    }
+  });
+  document.addEventListener("click", () => {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+  });
+})();
+</script>
+</body>
+</html>
