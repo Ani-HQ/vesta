@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Vesta — Hours Left</title>
+<meta name="description" content="A split-flap board counting down the hours left in the year. Make them count.">
+<meta property="og:title" content="Vesta — Hours Left">
+<meta property="og:description" content="A split-flap board counting down the hours left in the year. Make them count.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#0a0a0a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230a0a0a'/><text x='50' y='70' font-family='Helvetica,Arial,sans-serif' font-size='60' font-weight='700' fill='%23f5e7c4' text-anchor='middle'>V</text></svg>">
+<link rel="manifest" href="manifest.webmanifest">
 <style>
   :root {
     --bg: #0a0a0a;
@@ -147,7 +156,7 @@
   const CELLS = COLS * ROWS;
   const CHAR_SET = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!?.,'-:";
 
-  const MESSAGES = [
+  let MESSAGES = [
     ["FOCUS ON THE FEW", "THINGS THAT MATTER"],
     ["DO NOT SHIP RANDOM", "STUFF NOBODY WANTS"],
     ["AIM SMALL OR AIM BIG", "NOTHING IN BETWEEN"],
@@ -246,10 +255,22 @@
     return " ".repeat(pad) + text + " ".repeat(COLS - text.length - pad);
   }
 
-  function hoursLeftInYear() {
+  // Optional custom countdown: ?until=2026-09-01&label=LAUNCH
+  const params = new URLSearchParams(location.search);
+  let customTarget = null;
+  let customLabel = null;
+  if (params.get("until")) {
+    const d = new Date(params.get("until") + "T00:00:00");
+    if (!isNaN(d) && d > new Date()) {
+      customTarget = d;
+      customLabel = params.get("label") || "";
+    }
+  }
+
+  function hoursLeft() {
     const now = new Date();
-    const endOfYear = new Date(now.getFullYear() + 1, 0, 1, 0, 0, 0, 0);
-    const ms = endOfYear - now;
+    const target = customTarget || new Date(now.getFullYear() + 1, 0, 1, 0, 0, 0, 0);
+    const ms = target - now;
     const totalSeconds = Math.max(0, Math.floor(ms / 1000));
     return {
       hours: Math.floor(totalSeconds / 3600),
@@ -260,8 +281,10 @@
   }
 
   function renderFrame(messageLines) {
-    const { hours, minutes, seconds, year } = hoursLeftInYear();
-    const headline = `HOURS LEFT IN ${year}`;
+    const { hours, minutes, seconds, year } = hoursLeft();
+    const headline = customTarget
+      ? (customLabel ? `HOURS UNTIL ${customLabel}` : "HOURS LEFT")
+      : `HOURS LEFT IN ${year}`;
     const big = `${hours}H ${String(minutes).padStart(2, "0")}M ${String(seconds).padStart(2, "0")}S`;
 
     writeLine(0, "", "W");
@@ -275,12 +298,41 @@
   let messageIdx = Math.floor(Math.random() * MESSAGES.length);
   const msg = () => MESSAGES[messageIdx];
 
+  // Daily AI-generated messages; the embedded array above is the fallback.
+  async function loadMessages() {
+    try {
+      const res = await fetch("messages.json", { cache: "no-cache" });
+      if (!res.ok) return;
+      const data = await res.json();
+      const valid = (Array.isArray(data) ? data : []).filter(
+        m => Array.isArray(m) && m.length === 2 && m.every(l => typeof l === "string" && l.length <= COLS)
+      );
+      if (valid.length >= 4) {
+        MESSAGES = valid;
+        messageIdx = Math.floor(Math.random() * MESSAGES.length);
+      }
+    } catch {}
+  }
+  loadMessages();
+
   renderFrame(msg());
   setInterval(() => renderFrame(msg()), 1000);
   setInterval(() => {
     messageIdx = (messageIdx + 1) % MESSAGES.length;
     renderFrame(msg());
   }, 12000);
+  // Refresh the feed every 6 hours for always-on displays
+  setInterval(loadMessages, 6 * 3600 * 1000);
+
+  // Keep the screen awake; this is a display app
+  let wakeLock = null;
+  async function requestWakeLock() {
+    try { wakeLock = await navigator.wakeLock?.request("screen"); } catch {}
+  }
+  requestWakeLock();
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") requestWakeLock();
+  });
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "f" || e.key === "F") {
@@ -290,6 +342,7 @@
   });
   document.addEventListener("click", () => {
     if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+    requestWakeLock();
   });
 })();
 </script>
